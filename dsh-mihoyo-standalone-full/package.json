@@ -1,0 +1,19 @@
+{
+  "name": "dsh-mihoyo-standalone",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "米游社三游戏数据看板与出图服务（独立运行，不依赖 DSH）",
+  "scripts": {
+    "start": "node server.mjs",
+    "install:deps": "npm install --omit=dev --registry https://registry.npmmirror.com"
+  },
+  "dependencies": {
+    "@tencent-connect/qqbot-nodejs": "^1.0.5",
+    "pngjs": "^7.0.0",
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

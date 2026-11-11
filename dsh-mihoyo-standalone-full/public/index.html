@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>米游社数据看板 · dsh-mihoyo</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">米</div>
+      <div>
+        <div class="bname">米游社看板</div>
+        <div class="bsub">dsh-mihoyo standalone</div>
+      </div>
+    </div>
+    <nav id="nav">
+      <button class="on" data-tab="overview">总览</button>
+      <button data-tab="users">用户</button>
+      <button data-tab="chars">角色</button>
+      <button data-tab="commands">指令</button>
+      <button data-tab="gallery">图库</button>
+      <button data-tab="service">服务</button>
+      <button data-tab="logs">日志</button>
+    </nav>
+    <div class="side-foot">
+      <div id="liveDot" class="dot off"></div><span id="liveText">连接中…</span>
+      <div class="tiny" id="dataHome"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div>
+        <h1 id="pageTitle">总览</h1>
+        <div class="sub" id="pageSub">原神 · 星铁 · 绝区零 的绑定与出图</div>
+      </div>
+      <div class="actions">
+        <span class="stamp" id="stamp">--</span>
+        <button id="refresh" class="btn">刷新</button>
+      </div>
+    </header>
+
+    <section id="tab-overview" class="tab on">
+      <div class="kpis">
+        <div class="kpi"><div class="k">用户</div><div class="v" id="kUsers">0</div><div class="s">已绑定 QQ</div></div>
+        <div class="kpi gs"><div class="k">原神</div><div class="v" id="kGs">0</div><div class="s">绑定 UID</div></div>
+        <div class="kpi sr"><div class="k">星铁</div><div class="v" id="kSr">0</div><div class="s">绑定 UID</div></div>
+        <div class="kpi zzz"><div class="k">绝区零</div><div class="v" id="kZzz">0</div><div class="s">绑定 UID</div></div>
+        <div class="kpi cache"><div class="k">缓存图</div><div class="v" id="kCache">0</div><div class="s" id="kCacheSize">0 MB</div></div>
+        <div class="kpi bot"><div class="k">机器人</div><div class="v" id="kBot">--</div><div class="s">配置自启</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div class="ph"><b>快捷出图</b><span class="tiny">点一下生成，图片在弹层里看</span></div>
+          <div class="row wrap" id="quick"></div>
+        </div>
+        <div class="panel">
+          <div class="ph"><b>最近缓存</b><span class="tiny" id="recentCount"></span></div>
+          <div class="recent" id="recent"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="ph"><b>绑定概览</b><span class="tiny">每个用户、三个游戏</span></div>
+        <div id="overviewUsers" class="userline"></div>
+      </div>
+    </section>
+
+    <section id="tab-users" class="tab">
+      <div id="usersBox" class="users"></div>
+    </section>
+
+    <section id="tab-chars" class="tab">
+      <div class="grid3" id="charBox"></div>
+    </section>
+
+        <section id="tab-commands" class="tab">
+      <div class="row wrap" style="margin-bottom:12px">
+        <input id="cmdSearch" class="inp" placeholder="搜指令或说明…" style="max-width:320px">
+        <span class="tiny" id="cmdCount"></span>
+      </div>
+      <div class="grid3" id="cmdBoxes"></div>
+    </section>
+
+    <section id="tab-gallery" class="tab">
+      <div class="row wrap filters" id="galFilters"></div>
+      <div class="gallery" id="gallery"></div>
+    </section>
+
+    <section id="tab-service" class="tab">
+      <div class="grid2">
+        <div class="panel">
+          <div class="ph"><b>健康检查</b><span class="tiny">Enka / 米游社 接口</span></div>
+          <div id="health" class="kv"></div>
+        </div>
+        <div class="panel">
+          <div class="ph"><b>机器人</b><span class="tiny">QQ 指令通道</span></div>
+          <div id="botBox" class="kv"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="ph"><b>命令覆盖</b><span class="tiny">commands.json 注册表</span></div>
+        <div id="cmds" class="cmds"></div>
+      </div>
+    </section>
+      <section id="tab-logs" class="tab">
+      <div class="row wrap" style="margin-bottom:10px;gap:8px">
+        <div class="row" id="logFilters">
+          <button class="small on" data-src="">全部</button>
+          <button class="small" data-src="请求">请求</button>
+          <button class="small" data-src="操作">操作</button>
+          <button class="small" data-src="服务">服务</button>
+          <button class="small" data-src="机器人">机器人</button>
+          <button class="small" id="logErrOnly">只看错误</button>
+        </div>
+        <input id="logSearch" class="inp" placeholder="搜日志…" style="max-width:220px">
+        <select id="logLines" class="inp" style="max-width:96px">
+          <option>200</option><option selected>500</option><option>1000</option>
+        </select>
+        <label class="tiny"><input type="checkbox" id="logAuto" checked> 自动刷新</label>
+        <button class="small" id="logRefresh">刷新</button>
+        <button class="small" id="logDownload">下载</button>
+        <span class="tiny" id="logCount"></span>
+      </div>
+      <div id="logList" class="loglist"></div>
+    </section>
+
+</main>
+</div>
+
+<div id="lightbox" class="lightbox">
+  <img id="lbImg" alt="">
+  <div class="lb-bar"><span id="lbName"></span><button id="lbClose">关闭</button></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# heavy runtime payloads, fetched separately / not versioned
+dsh-mihoyo-standalone-full/node_modules/
+dsh-mihoyo-standalone-full/runtime/
+dsh-mihoyo-standalone-full/data/miao-res/
+dsh-mihoyo-standalone-full/data/miao-root/
+dsh-mihoyo-standalone-full/data/cache/
+dsh-mihoyo-standalone-full/data/logs/
+dsh-mihoyo-standalone-full/data/*.log
+*.zip
+*.tgz

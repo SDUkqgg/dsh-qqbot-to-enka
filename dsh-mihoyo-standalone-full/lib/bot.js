@@ -9,6 +9,12 @@ const 配置文件 = join(家, 'bot.json')
 const 前缀 = /^[#＃*＊%％]/
 const 别名表 = { 少女: '哥伦比娅', 雷神: '雷电将军', 影: '雷电将军', 心海: '珊瑚宫心海', 草神: '纳西妲', 水神: '芙宁娜', 火神: '玛薇卡', 岩王帝君: '钟离', 芙芙: '芙宁娜', 雷电影: '雷电将军', 雷电: '雷电将军', 纳西达: '纳西妲' }
 let 别名缓存 = { 时: 0, 表: {} }
+// 强制刷新的冷却：防止任何人反复触发把 Enka / 米游社 打满
+const 强刷冷却 = new Map()
+const 强刷同人间隔 = 10 * 60 * 1000 // 同一人同游戏 10 分钟
+const 强刷全局间隔 = 60 * 1000 // 任意两次强制刷新之间至少 60 秒
+let 强刷全局上次 = 0
+
 function 读别名表 () {
   try {
     const f = 家 + '/aliases.json'
@@ -258,6 +264,21 @@ async function 路由(文本, 回, 谁 = '', 目标 = null, bot = null) {
         记('星铁伤害失败：' + 因伤.slice(0, 140))
         await 回('星铁伤害没画出来：' + (说伤 || '角色名对不对？'))
       }
+      return true
+    }
+    if (/攻略$/.test(令2)) {
+      const 名g = 令2.replace(/攻略$/, '').trim() || 参2
+      if (!名g) { await 回('要角色名：*名字攻略'); return true }
+      if (!目标 || !bot) { await 回('攻略：' + 名g); return true }
+      try {
+        const j = await 本地('guide?name=' + encodeURIComponent(正名(名g)) + '&game=sr', undefined, 300000)
+        if (!j?.ok) { await 回('攻略没抓到：' + (j?.说 || '米游社那边没有')); return true }
+        await 回('攻略：' + (j.标题 || 名g) + (j.更新 ? '\n更新：' + j.更新 : '') + '\n' + (j.来源 || ''))
+        const { readFileSync } = await import('node:fs')
+        for (const f of (j.图片 || [])) { await bot.sendImage(目标, { buffer: readFileSync(f) }); await new Promise((r) => setTimeout(r, 1200)) }
+        状态.答++
+        记('答 [*攻略] ' + 名g)
+      } catch (e) { await 回('攻略没抓到：' + String(e?.message || e).slice(0, 80)) }
       return true
     }
     if (/^(图鉴|资料)/.test(令2) || /图鉴$/.test(令2)) {
@@ -517,6 +538,22 @@ async function 路由(文本, 回, 谁 = '', 目标 = null, bot = null) {
       }
     }
     if (!查的) { await 回('你还没绑 UID。先 #扫码登录，或 #绑定 UID'); return true }
+    if (强刷) {
+      const 同人 = `${谁}|${游}`
+      const 此人上次 = 强刷冷却.get(同人) || 0
+      const 人剩 = 强刷同人间隔 - (Date.now() - 此人上次)
+      if (人剩 > 0) {
+        await 回(`强制刷新冷却中，${Math.ceil(人剩 / 60000)} 分钟后再说。普通查询随时能用。`)
+        return true
+      }
+      const 全局剩 = 强刷全局间隔 - (Date.now() - 强刷全局上次)
+      if (全局剩 > 0) {
+        await 回(`刚有人刷过，${Math.ceil(全局剩 / 1000)} 秒后再试。`)
+        return true
+      }
+      强刷冷却.set(同人, Date.now())
+      强刷全局上次 = Date.now()
+    }
     const j = await 本地('panel?game=' + 游 + '&uid=' + encodeURIComponent(查的) + (强刷 ? '&force=1' : '')).catch(() => null)
     if (!j?.ok) { await 回('查不到：' + (j?.说 || '没有响应')); return true }
     if (游 !== 'gs') { await 回(`${游} 面板接口已通，字段解析还没做（返回原始数据 ${JSON.stringify(j.面板?.原始 || {}).slice(0, 300)}）`); return true }
@@ -551,7 +588,7 @@ async function 路由(文本, 回, 谁 = '', 目标 = null, bot = null) {
   if (文本.trim().startsWith('#') || 文本.trim().startsWith('＃')) {
     // miao 的「角色名直呼」：#雷神 / #雷神面板 / #雷神圣遗物 / #雷神武器 / #雷神天赋 / #雷神命座 / #雷神材料
   if (目标 && bot && /^[\u4e00-\u9fa5A-Za-z·]{1,14}$/.test(令)) {
-    const 后缀表 = [['突破材料', 'material'], ['图鉴', 'wiki'], ['资料', 'wiki'], ['圣遗物', 'artis'], ['命之座', 'cons'], ['材料', 'material'], ['养成', 'material'], ['天赋', 'talent'], ['技能', 'talent'], ['命座', 'cons'], ['武器', 'weapons'], ['面板', 'card'], ['卡片', 'card'], ['详情', 'card'], ['伤害', 'card']]
+    const 后缀表 = [['突破材料', 'material'], ['图文攻略', 'guide'], ['攻略', 'guide'], ['图鉴', 'wiki'], ['资料', 'wiki'], ['圣遗物', 'artis'], ['命之座', 'cons'], ['材料', 'material'], ['养成', 'material'], ['天赋', 'talent'], ['技能', 'talent'], ['命座', 'cons'], ['武器', 'weapons'], ['面板', 'card'], ['卡片', 'card'], ['详情', 'card'], ['伤害', 'card']]
     let 名 = 令
     let 式 = 'card'
     for (const [尾, 模] of 后缀表) {
@@ -561,6 +598,18 @@ async function 路由(文本, 回, 谁 = '', 目标 = null, bot = null) {
     if (式 === 'card' && 参 && 型词[参]) 式 = 型词[参]
     const 要伤害 = 式 === 'card' && (/伤害$/.test(令) || 参 === '伤害')
     名 = 正名(名)
+    if (式 === 'guide') {
+      try {
+        const j = await 本地('guide?name=' + encodeURIComponent(名) + '&game=gs', undefined, 300000)
+        if (!j?.ok) { await 回('攻略没抓到：' + (j?.说 || '米游社那边没有')); return true }
+        await 回('攻略：' + (j.标题 || 名) + (j.更新 ? '\n更新：' + j.更新 : '') + '\n' + (j.来源 || ''))
+        const { readFileSync } = await import('node:fs')
+        for (const f of (j.图片 || [])) { await bot.sendImage(目标, { buffer: readFileSync(f) }); await new Promise((r) => setTimeout(r, 1200)) }
+        状态.答++
+        记('答 [攻略] ' + 名)
+      } catch (e) { await 回('攻略没抓到：' + String(e?.message || e).slice(0, 80)) }
+      return true
+    }
     const 图鉴类 = 式 === 'talent' || 式 === 'cons' || 式 === 'material' || 式 === 'wiki'
     let 出图 = null
     try {
@@ -585,7 +634,7 @@ async function 路由(文本, 回, 谁 = '', 目标 = null, bot = null) {
               globalThis.__dshMihoyoNames.set(查的, 名单)
             }
           }
-          if (名单 && !名单.名们.includes(名)) { await 回('你的展柜里没有「' + 名 + '」。要在游戏里把角色放进展柜并打开「显示角色详情」，5 分钟后再试'); return true }
+          if (false && 名单 && !名单.名们.includes(名)) { await 回('你的展柜里没有「' + 名 + '」。要在游戏里把角色放进展柜并打开「显示角色详情」，5 分钟后再试'); return true }
           if (名单 && 名单.名们.includes(名)) {
             出图 = 式 === 'artis'
               ? await 本地图('panel/png?uid=' + encodeURIComponent(查的) + '&char=artis&who=' + encodeURIComponent(名), 115000)
@@ -595,6 +644,9 @@ async function 路由(文本, 回, 谁 = '', 目标 = null, bot = null) {
           }
         }
       }
+          if (!出图 && 名) {
+            try { 出图 = await 角色卡图(查的, 名) } catch {}
+          }
     } catch (e) {
       记('角色名直呼失败：' + String(e?.message || e).slice(0, 140))
       出图 = null
@@ -663,8 +715,8 @@ async function 取我(谁) {
   return j?.用户 || null
 }
 
-async function 本地(路径, 选项) {
-  const r = await fetch(本地口 + '/dsh-mihoyo/' + 路径, { ...(选项 || {}), signal: AbortSignal.timeout(20000) })
+async function 本地(路径, 选项, 毫秒 = 20000) {
+  const r = await fetch(本地口 + '/dsh-mihoyo/' + 路径, { ...(选项 || {}), signal: AbortSignal.timeout(毫秒) })
   return r.json()
 }
 

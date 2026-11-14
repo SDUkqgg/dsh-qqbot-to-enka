@@ -62,6 +62,17 @@ function 清旧轮廓() {
   } catch {}
 }
 
+const 发压缩图 = async (res, 图) => {
+  try {
+    const sharp = (await import('sharp')).default
+    const jpg = await sharp(图).resize({ width: 820, withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer()
+    res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': jpg.length, 'cache-control': 'no-store' })
+    return res.end(jpg)
+  } catch {
+    return await 发压缩图(res, 图)
+  }
+}
+
 function 清profile(目录) {
   try { rmSync(目录, { recursive: true, force: true, maxRetries: 2 }) } catch {}
 }
@@ -275,6 +286,15 @@ async function 拉米游社角色(cookie, uid, server) {
   return { 错: 落.join(' | ').slice(0, 300) }
 }
 
+// 别名反查：alias.js 形如 正式名: '别名1,别名2'，反向建立 别名→正式名
+const 反别名 = {}
+try {
+  const 原 = readFileSync(join(家, 'miao-root/plugins/miao-plugin/resources/meta-gs/character/alias.js'), 'utf8')
+  for (const m of 原.matchAll(/^\s*([\u4e00-\u9fa5A-Za-z0-9·]+)\s*:\s*'([^']*)'/gm)) {
+    for (const x of m[2].split(',')) { const k = x.trim(); if (k) 反别名[k] = m[1] }
+  }
+} catch {}
+
 // 武器 / 圣遗物名字表（从 miao meta 生成）
 let 武名 = {}
 let 圣名 = {}
@@ -323,6 +343,10 @@ function Enka详情(a) {
 try {
   const 外部 = JSON.parse(readFileSync(join(家, 'roles.json'), 'utf8'))
   for (const [k, v] of Object.entries(外部)) 角色名[k] = v
+} catch {}
+try {
+  const 元 = JSON.parse(readFileSync(join(家, 'miao-root/plugins/miao-plugin/resources/meta-gs/character/data.json'), 'utf8'))
+  for (const [k, c] of Object.entries(元)) if (c && c.name) 角色名[k] = c.name
 } catch {}
 
 async function 拉面板(uid, 强制 = false) {
@@ -561,7 +585,42 @@ export async function 处理请求(req, res) {
 
           if (路径 === 'version') {
             if (!同源(req)) return 写({ ok: false, 说: '来源不对' }, 403)
-            return 写({ ok: false, 说: '版本源还没接：上游没有可读的版本文件，这里不假装有数据' }, 501)
+            const 插 = join(家, 'miao-root/plugins/miao-plugin')
+            let 插件版本 = '?'
+            try { 插件版本 = JSON.parse(readFileSync(join(插, 'package.json'), 'utf8')).version || '?' } catch {}
+            const 数角色 = (q) => { try { return Object.keys(JSON.parse(readFileSync(join(插, 'resources', q), 'utf8'))).length } catch { return 0 } }
+            const gsCount = 数角色('meta-gs/character/data.json')
+            const srCount = 数角色('meta-sr/character/data.json')
+            return 写({ ok: true, miao: 插件版本, 原神: 'miao ' + 插件版本 + '（' + gsCount + ' 角色）', 星铁: srCount + ' 角色', 绝区零: '未接', 原神角色: gsCount, 星铁角色: srCount })
+          }
+          if (路径 === 'guide') {
+            if (!同源(req)) return 写({ ok: false, 说: '来源不对' }, 403)
+            const 名 = String(参数.get('name') || '').trim().slice(0, 20)
+            const 游 = String(参数.get('game') || 'gs') === 'sr' ? 'sr' : 'gs'
+            if (!名) return 写({ ok: false, 说: '要给角色名' }, 400)
+            const 索引文件 = join(家, 'guides', 'index.json')
+            try {
+              const 表 = JSON.parse(readFileSync(索引文件, 'utf8'))
+              const 条 = 表[游 + ':' + 名.trim().toLowerCase()]
+              if (条 && 条.图片 && 条.图片.length && 条.图片.every((f) => existsSync(f))) return 写({ ok: true, ...条, 缓存: true })
+            } catch {}
+            const { readFileSync: 读文 } = await import('node:fs')
+            try {
+              const 表 = JSON.parse(读文(join(家, 'guides', 'index.json'), 'utf8'))
+              const 条 = 表[游 + ':' + 名.trim().toLowerCase()]
+              if (条 && 条.图片 && 条.图片.length && 条.图片.every((f) => existsSync(f))) return 写({ ok: true, ...条, 缓存: true })
+            } catch {}
+            const 工人 = join(家, 'guide-worker.mjs')
+            if (!existsSync(工人)) return 写({ ok: false, 说: 'guide worker 不在' }, 500)
+            const 缓存目录 = join(家, 'cache')
+            try { mkdirSync(缓存目录, { recursive: true }) } catch {}
+            try {
+              const 结果 = await 跑命令(process.execPath, [工人, 名, 游, 缓存目录], { timeout: 240000, maxBuffer: 8 * 1024 * 1024 })
+              const 行 = String(结果.stdout || '').trim().split('\n').filter(Boolean).pop()
+              return 写(JSON.parse(行))
+            } catch (e) {
+              return 写({ ok: false, 说: '攻略抓取失败：' + String(e?.message || e).slice(0, 120) }, 502)
+            }
           }
           if (路径 === 'roles') {
             if (!同源(req)) return 写({ ok: false, 说: '来源不对' }, 403)
@@ -639,8 +698,7 @@ export async function 处理请求(req, res) {
                 try { renameSync(临W + '.png', 出W) } catch (e) { return 写({ ok: false, 说: '图鉴没落盘' }, 502) }
               }
               const 图W = readFileSync(出W)
-              res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图W.length, 'cache-control': 'no-store' })
-              return res.end(图W)
+              return await 发压缩图(res, 图W)
             } catch (e) { return 写({ ok: false, 说: 'srwiki: ' + String(e?.message || e).slice(0, 120) }, 500) }
           }
           if (路径 === 'srhelp') {
@@ -655,8 +713,7 @@ export async function 处理请求(req, res) {
               try { renameSync(临时基H + '.png', 出图H) } catch (e) { return 写({ ok: false, 说: '帮助图没落盘' }, 502) }
             }
             const 图H = readFileSync(出图H)
-            res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图H.length, 'cache-control': 'no-store' })
-            return res.end(图H)
+            return await 发压缩图(res, 图H)
             } catch (e) { return 写({ ok: false, 说: 'srhelp: ' + String(e?.message || e).slice(0, 160) }, 500) }
           }
           if (路径 === 'users') {
@@ -836,8 +893,7 @@ export async function 处理请求(req, res) {
               const st = statSync(缓存图)
               if (Date.now() - st.mtimeMs < 30 * 60 * 1000) {
                 const 图 = readFileSync(缓存图)
-                res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图.length, 'cache-control': 'no-store' })
-                return res.end(图)
+                return await 发压缩图(res, 图)
               }
             } catch {}
             const 临时基 = join(家, '_render-' + process.pid + '-' + Date.now())
@@ -856,8 +912,7 @@ export async function 处理请求(req, res) {
             const 图 = readFileSync(出图)
             try { writeFileSync(缓存图, 图) } catch {}
             try { unlinkSync(出图) } catch {}
-            res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图.length, 'cache-control': 'no-store' })
-            return res.end(图)
+            return await 发压缩图(res, 图)
           }
           if (路径 === 'miao/profile') {
             if (!同源(req)) return 写({ ok: false, 说: '来源不对' }, 403)
@@ -879,8 +934,7 @@ export async function 处理请求(req, res) {
                   let 旧图 = null
                   try { 旧图 = readFileSync(缓存图) } catch {}
                   if (旧图 && 旧图.length > 5000) {
-                    res.writeHead(200, { 'content-type': 'image/png', 'content-length': 旧图.length, 'cache-control': 'no-store' })
-                    return res.end(旧图)
+                    return await 发压缩图(res, 旧图)
                   }
                 }
               } catch {}
@@ -922,8 +976,7 @@ export async function 处理请求(req, res) {
             }
             try {
               const 图 = await 任务
-              res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图.length, 'cache-control': 'no-store' })
-              return res.end(图)
+              return await 发压缩图(res, 图)
             } catch (e) {
               const 日志 = String((e && (e.stdout || e.stderr)) || '').trim()
               const 停 = /STOP: ([^\r\n]+)/.exec(日志)
@@ -950,8 +1003,7 @@ export async function 处理请求(req, res) {
                 const st = statSync(缓存图)
                 if (Date.now() - st.mtimeMs < 10 * 60 * 1000 && st.size > 20000) {
                   const 旧图 = readFileSync(缓存图)
-                  res.writeHead(200, { 'content-type': 'image/png', 'content-length': 旧图.length, 'cache-control': 'no-store' })
-                  return res.end(旧图)
+                  return await 发压缩图(res, 旧图)
                 }
               } catch {}
             }
@@ -974,8 +1026,7 @@ export async function 处理请求(req, res) {
             try { 图4 = readFileSync(出图) } catch { try { unlinkSync(出图) } catch {}; return 写({ ok: false, 说: '图读不出来' }, 502) }
             { const 临名 = 缓存图 + '.tmp-' + process.pid + '-' + Date.now(); try { writeFileSync(临名, 图4); renameSync(临名, 缓存图) } catch { try { unlinkSync(临名) } catch {} } }
             try { unlinkSync(出图) } catch {}
-            res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图4.length, 'cache-control': 'no-store' })
-            return res.end(图4)
+            return await 发压缩图(res, 图4)
           }
           if (路径 === 'uidlist') {
             if (!同源(req)) return 写({ ok: false, 说: '来源不对' }, 403)
@@ -993,8 +1044,7 @@ export async function 处理请求(req, res) {
                 const st = statSync(缓存图)
                 if (Date.now() - st.mtimeMs < 60 * 1000 && st.size > 8000) {
                   const 旧图 = readFileSync(缓存图)
-                  res.writeHead(200, { 'content-type': 'image/png', 'content-length': 旧图.length, 'cache-control': 'no-store' })
-                  return res.end(旧图)
+                  return await 发压缩图(res, 旧图)
                 }
               } catch {}
             }
@@ -1014,8 +1064,7 @@ export async function 处理请求(req, res) {
             try { 图3 = readFileSync(出图) } catch { try { unlinkSync(出图) } catch {}; return 写({ ok: false, 说: '图读不出来' }, 502) }
             { const 临名 = 缓存图 + '.tmp-' + process.pid + '-' + Date.now(); try { writeFileSync(临名, 图3); renameSync(临名, 缓存图) } catch { try { unlinkSync(临名) } catch {} } }
             try { unlinkSync(出图) } catch {}
-            res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图3.length, 'cache-control': 'no-store' })
-            return res.end(图3)
+            return await 发压缩图(res, 图3)
           }
           if (路径 === 'myspanel') {
             // 走米游社私有接口（api-takumi-record / character/list），要扫码登录拿到的 cookie
@@ -1048,8 +1097,7 @@ export async function 处理请求(req, res) {
                 const st = statSync(缓存图)
                 if (Date.now() - st.mtimeMs < 10 * 60 * 1000 && st.size > 20000) {
                   const 旧图 = readFileSync(缓存图)
-                  res.writeHead(200, { 'content-type': 'image/png', 'content-length': 旧图.length, 'cache-control': 'no-store' })
-                  return res.end(旧图)
+                  return await 发压缩图(res, 旧图)
                 }
               } catch {}
             }
@@ -1069,8 +1117,7 @@ export async function 处理请求(req, res) {
             try { 图2 = readFileSync(出图) } catch { try { unlinkSync(出图) } catch {}; return 写({ ok: false, 说: '图读不出来' }, 502) }
             { const 临名 = 缓存图 + '.tmp-' + process.pid + '-' + Date.now(); try { writeFileSync(临名, 图2); renameSync(临名, 缓存图) } catch { try { unlinkSync(临名) } catch {} } }
             try { unlinkSync(出图) } catch {}
-            res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图2.length, 'cache-control': 'no-store' })
-            return res.end(图2)
+            return await 发压缩图(res, 图2)
           }
           if (路径 === 'wiki') {
             if (!同源(req)) return 写({ ok: false, 说: '来源不对' }, 403)
@@ -1079,7 +1126,7 @@ export async function 处理请求(req, res) {
             if (!['talent', 'cons', 'material', 'wiki'].includes(模)) return 写({ ok: false, 说: 'mode 只认 talent / cons / material / wiki' }, 400)
             const 名 = String(参数.get('char') || '').trim().slice(0, 40)
             if (!名) return 写({ ok: false, 说: '要给角色名' }, 400)
-            if (!/^[\w\u4e00-\u9fa5-]+$/.test(名)) return 写({ ok: false, 说: '角色名不合法' }, 400)
+            if (!/^[\w\u4e00-\u9fa5·•・-]+$/.test(名)) return 写({ ok: false, 说: '角色名不合法' }, 400)
             const 插件根 = join(家, 'miao-root', 'plugins', 'miao-plugin')
             const 工人 = join(插件根, 'wiki-worker.mjs')
             try {
@@ -1099,8 +1146,10 @@ export async function 处理请求(req, res) {
                 const st = statSync(缓存图)
                 if (Date.now() - st.mtimeMs < 24 * 3600 * 1000 && st.size > 30000) {
                   const 旧图 = readFileSync(缓存图)
-                  res.writeHead(200, { 'content-type': 'image/png', 'content-length': 旧图.length, 'cache-control': 'no-store' })
-                  return res.end(旧图)
+                  let 发 = 旧图
+                  try { const sharp = (await import('sharp')).default; 发 = await sharp(旧图).resize({ width: 820, withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer() } catch {}
+                  res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': 发.length, 'cache-control': 'no-store' })
+                  return res.end(发)
                 }
               } catch {}
             }
@@ -1124,8 +1173,7 @@ export async function 处理请求(req, res) {
             try { 图 = readFileSync(出图) } catch { try { unlinkSync(出图) } catch {}; return 写({ ok: false, 说: '图读不出来' }, 502) }
             { const 临名 = 缓存图 + '.tmp-' + process.pid + '-' + Date.now(); try { writeFileSync(临名, 图); renameSync(临名, 缓存图) } catch { try { unlinkSync(临名) } catch {} } }
             try { unlinkSync(出图) } catch {}
-            res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图.length, 'cache-control': 'no-store' })
-            return res.end(图)
+            return await 发压缩图(res, 图)
           }
           if (路径 === 'miao/config') {
             const 根 = join(家, 'miao-root', 'plugins', 'miao-plugin')
@@ -1409,12 +1457,12 @@ body{margin:0;background:#0d1117;font:14px/1.6 system-ui,'Microsoft YaHei',sans-
               裁列表图(临时0 + '.png')
               const 图0 = readFileSync(临时0 + '.png')
               try { unlinkSync(临时0 + '.png') } catch {}
-              res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图0.length, 'cache-control': 'no-store' })
-              return res.end(图0)
+              return await 发压缩图(res, 图0)
             }
             let 角 = null
-            if (/^\d+$/.test(名)) 角 = 列表[Number(名)] || null
-            else 角 = 列表.find((c) => c.name === 名) || null
+            const 真名 = 反别名[谁0] || 谁0
+            if (/^\d+$/.test(真名)) 角 = 列表[Number(真名)] || null
+            else 角 = 列表.find((c) => c.name === 真名) || null
             if (!角) return 写({ ok: false, 说: '没有这个角色' }, 404)
             const 属 = 角.属性 || {}
             const 行们 = [
@@ -1470,8 +1518,7 @@ body{margin:0;background:#0d1117;font:14px/1.6 system-ui,'Microsoft YaHei',sans-
             if (!existsSync(临时 + '.png')) return 写({ ok: false, 说: '截图没生成（Edge 没有落盘）' }, 502)
             const 图 = readFileSync(临时 + '.png')
             try { unlinkSync(临时 + '.png') } catch {}
-            res.writeHead(200, { 'content-type': 'image/png', 'content-length': 图.length, 'cache-control': 'no-store' })
-            return res.end(图)
+            return await 发压缩图(res, 图)
           }
           if (路径 === 'panel') {
             if (!同源(req)) return 写({ ok: false, 说: '来源不对' }, 403)

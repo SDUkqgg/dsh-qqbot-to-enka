@@ -11,6 +11,7 @@ const 根 = dirname(fileURLToPath(import.meta.url))
 const 公共 = join(根, 'public')
 const 家 = process.env.DSH_MIHOYO_HOME || join(根, 'data')
 const 端口 = Number(process.env.MIHOYO_STANDALONE_PORT || process.env.PORT || 8788)
+const 主机 = String(process.env.MIHOYO_HOST || '127.0.0.1')
 // 先把数据目录定下来并写回环境变量，再动态载入业务模块，
 // 这样 lib/index.js 里的“家”跟看板读的是同一个目录，不会绕回本机已有账号。
 process.env.DSH_MIHOYO_HOME = 家
@@ -166,6 +167,37 @@ function 指令表() {
   }
 }
 
+const 渲染并发数 = Math.max(1, Number(process.env.MIHOYO_RENDER_CONCURRENCY || 1))
+let 渲染中 = 0
+const 渲染队 = []
+function 开跑渲染(项) {
+  渲染中++
+  Promise.resolve().then(项.任务).then(项.res).catch(项.rej).finally(() => {
+    渲染中--
+    const 下一个 = 渲染队.shift()
+    if (下一个) 开跑渲染(下一个)
+  })
+}
+function 排队渲染(任务, 超时 = 150000) {
+  return new Promise((res, rej) => {
+    const 项 = { 任务, res, rej, at: Date.now() }
+    if (渲染中 < 渲染并发数 && 渲染队.length === 0) {
+      开跑渲染(项)
+      return
+    }
+    if (渲染队.length >= 40) { rej(Object.assign(new Error('排队太多'), { 码: 503 })); return }
+    渲染队.push(项)
+    setTimeout(() => {
+      const i = 渲染队.indexOf(项)
+      if (i >= 0) {
+        渲染队.splice(i, 1)
+        rej(Object.assign(new Error('排队超时'), { 码: 503 }))
+      }
+    }, 超时)
+  })
+}
+const 要排队 = (子) => /^(list|sr|srhelp|srwiki|wiki|panel\/png|miao\/profile|miao\/render)(\/|\?|$)/.test(子)
+
 const 日志夹 = join(家, 'logs')
 function 记日志(级, 源, 文) {
   const 时 = new Date()
@@ -270,6 +302,7 @@ function 汇总() {
     绑定: { gs: 计数('gs'), sr: 计数('sr'), zzz: 计数('zzz') },
     缓存: { 张数: 图.length, 字节: 图.reduce((s, x) => s + x.size, 0) },
     机器人: { 自动启动: !!配置.autoStart, 在线: !!机器人状态().在线, appId尾: String(配置.appId || '').slice(-4) },
+    渲染: { 进行中: 渲染中, 排队: 渲染队.length, 并发上限: 渲染并发数 },
     原神角色: 原神角色(),
     用户: 条,
     图库: 图.slice(0, 80),
@@ -296,6 +329,7 @@ const 服务器 = http.createServer(async (req, res) => {
   try {
     // 业务接口：原样交给 dsh-mihoyo 的处理函数（同源校验、限位、错误映射都在里面）
     if (路径 === '/dsh-mihoyo' || 路径.startsWith('/dsh-mihoyo/')) {
+      const 子路径 = 路径.replace('/dsh-mihoyo', '').replace(/^\/+/, '')
       const 起 = Date.now()
       res.once('finish', () => {
         if (!/\.(png|jpe?g|webp|css|js|ico)$/i.test(路径)) {
@@ -303,6 +337,14 @@ const 服务器 = http.createServer(async (req, res) => {
           记日志(级, '请求', req.method + ' ' + url + ' → ' + res.statusCode + ' ' + (Date.now() - 起) + 'ms')
         }
       })
+      if (要排队(子路径)) {
+        try {
+          return await 排队渲染(() => 处理请求(req, res))
+        } catch (e) {
+          if (!res.headersSent) return 发Json(res, { ok: false, 说: '现在出图的人有点多，排一下队，稍后再发一次' }, e.码 || 503)
+          return
+        }
+      }
       return await 处理请求(req, res)
     }
     if (路径.startsWith('/api/') && 路径 !== '/api/events' && 路径 !== '/api/logs') {
@@ -422,8 +464,8 @@ const 服务器 = http.createServer(async (req, res) => {
 
 let 试端口 = 端口
 function 监听() {
-  服务器.listen(试端口, '127.0.0.1', () => {
-    记日志('ok', '服务', '启动 127.0.0.1:' + 试端口 + ' 数据目录 ' + 家)
+  服务器.listen(试端口, 主机, () => {
+    记日志('ok', '服务', '启动 ' + 主机 + ':' + 试端口 + ' 数据目录 ' + 家)
     console.log('dsh-mihoyo 独立看板已启动：http://127.0.0.1:' + 试端口)
     console.log('数据目录：' + 家)
     console.log('按 Ctrl+C 停止。')

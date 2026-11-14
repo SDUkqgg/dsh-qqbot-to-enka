@@ -8,3 +8,5 @@ dsh-mihoyo-standalone-full/data/logs/
 dsh-mihoyo-standalone-full/data/*.log
 *.zip
 *.tgz
+# QQ bot credentials ¡ª never commit
+dsh-mihoyo-standalone-full/data/bot.json
